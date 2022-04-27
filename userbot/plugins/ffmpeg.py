@@ -9,7 +9,7 @@ from userbot import catub
 
 from ..Config import Config
 from ..core.managers import edit_delete, edit_or_reply
-from ..helpers import _cattools, media_type, progress, reply_id
+from ..helpers import _cattools, _catutils, fileinfo, media_type, progress, reply_id
 
 plugin_category = "utils"
 
@@ -56,8 +56,24 @@ async def cult_small_video(
     return None
 
 
+def ms_converter(sec):
+    sec = int(sec)
+    seconds = sec % 60
+    if str(seconds) == "0":
+        seconds = "00"
+    if len(str(seconds)) == 1:
+        seconds = f"0{str(seconds)}"
+    minutes = (sec / 60) % 60
+    minutes = int(minutes)
+    if str(minutes) == "0":
+        minutes = "00"
+    if len(str(minutes)) == 1:
+        minutes = f"0{str(minutes)}"
+    return f"{minutes}:{seconds}"
+
+
 @catub.cat_cmd(
-    pattern="ffmpegsave$",
+    pattern="ffmpegsave(?:\s|$)([\s\S]*)",
     command=("ffmpegsave", plugin_category),
     info={
         "header": "Saves the media file in bot to trim mutliple times",
@@ -67,7 +83,16 @@ async def cult_small_video(
 )
 async def ff_mpeg_trim_cmd(event):
     "Saves the media file in bot to trim mutliple times"
+    mpath = event.pattern_match.group(1)
     if not os.path.exists(FF_MPEG_DOWN_LOAD_MEDIA_PATH):
+        if mpath and os.path.exists(mpath):
+            media = (await fileinfo(mpath))["type"]
+            if media not in ["Video", "Audio"]:
+                return await edit_delete(event, "`Only media files are supported`", 5)
+            await _catutils.runcmd(f"cp -r {mpath} {FF_MPEG_DOWN_LOAD_MEDIA_PATH}")
+            return await edit_or_reply(
+                event, f"Saved file to `{FF_MPEG_DOWN_LOAD_MEDIA_PATH}`"
+            )
         reply_message = await event.get_reply_message()
         if reply_message:
             start = datetime.now()
@@ -87,12 +112,13 @@ async def ff_mpeg_trim_cmd(event):
                 )
                 dl.close()
             except Exception as e:
-                await catevent.edit(f"**Error:**\n`{e}`")
+                await edit_or_reply(catevent, f"**Error:**\n`{e}`")
             else:
                 end = datetime.now()
                 ms = (end - start).seconds
-                await catevent.edit(
-                    f"Saved file to `{FF_MPEG_DOWN_LOAD_MEDIA_PATH}` in `{ms}` seconds."
+                await edit_or_reply(
+                    catevent,
+                    f"Saved file to `{FF_MPEG_DOWN_LOAD_MEDIA_PATH}` in `{ms}` seconds.",
                 )
         else:
             await edit_delete(event, "`Reply to a any media file`")
@@ -214,41 +240,38 @@ async def ff_mpeg_trim_cmd(event):
     out_put_file_name = os.path.join(
         Config.TMP_DOWNLOAD_DIRECTORY, f"{round(time.time())}.mp3"
     )
-
     if len(cmt) == 3:
-        # output should be audio
         cmd, start_time, end_time = cmt
-        o = await cult_small_video(
-            FF_MPEG_DOWN_LOAD_MEDIA_PATH,
-            Config.TMP_DOWNLOAD_DIRECTORY,
-            start_time,
-            end_time,
-            out_put_file_name,
-        )
-        if o is None:
-            return await edit_delete(
-                catevent, "**Error : **`Can't complete the process`"
-            )
-        try:
-            c_time = time.time()
-            await event.client.send_file(
-                event.chat_id,
-                o,
-                caption=" ".join(cmt[1:]),
-                force_document=False,
-                supports_streaming=True,
-                allow_cache=False,
-                reply_to=reply_to_id,
-                progress_callback=lambda d, t: asyncio.get_event_loop().create_task(
-                    progress(d, t, catevent, c_time, "trying to upload")
-                ),
-            )
-            os.remove(o)
-        except Exception as e:
-            return await edit_delete(catevent, f"**Error : **`{e}`")
     else:
-        await edit_delete(catevent, "RTFM")
-        return
+        start_time = "00:00"
+        duration = (await fileinfo(FF_MPEG_DOWN_LOAD_MEDIA_PATH))["duration"]
+        end_time = ms_converter(duration)
+    o = await cult_small_video(
+        FF_MPEG_DOWN_LOAD_MEDIA_PATH,
+        Config.TMP_DOWNLOAD_DIRECTORY,
+        start_time,
+        end_time,
+        out_put_file_name,
+    )
+    if o is None:
+        return await edit_delete(catevent, "**Error : **`Can't complete the process`")
+    try:
+        c_time = time.time()
+        await event.client.send_file(
+            event.chat_id,
+            o,
+            caption=" ".join(cmt[1:]),
+            force_document=False,
+            supports_streaming=True,
+            allow_cache=False,
+            reply_to=reply_to_id,
+            progress_callback=lambda d, t: asyncio.get_event_loop().create_task(
+                progress(d, t, catevent, c_time, "trying to upload")
+            ),
+        )
+        os.remove(o)
+    except Exception as e:
+        return await edit_delete(catevent, f"**Error : **`{e}`")
     end = datetime.now()
     ms = (end - start).seconds
     await edit_delete(catevent, f"`Completed Process in {ms} seconds`", 3)
